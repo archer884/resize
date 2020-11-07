@@ -1,10 +1,7 @@
 use image::{
-    Pixel,
-    EncodableLayout,
-    ImageBuffer,
-    GenericImageView,
     imageops::{resize, FilterType},
     io::Reader as ImageLoader,
+    EncodableLayout, GenericImageView, ImageBuffer, Pixel,
 };
 
 use std::{io, ops::Deref};
@@ -19,7 +16,7 @@ enum Operation {
 struct Opt {
     images: Vec<String>,
     operation: Operation,
-    threshold: u32,
+    size: u32,
 }
 
 impl Opt {
@@ -34,7 +31,7 @@ impl Opt {
             .arg(Arg::with_name("up").short("u").long("up"))
             .arg(Arg::with_name("down").short("d").long("down"))
             .arg(
-                Arg::with_name("threshold")
+                Arg::with_name("size")
                     .short("s")
                     .long("size")
                     .required(true)
@@ -44,7 +41,7 @@ impl Opt {
             .get_matches();
 
         Opt {
-            threshold: value_t!(m.value_of("threshold"), u32).unwrap_or_else(|e| e.exit()),
+            size: value_t!(m.value_of("size"), u32).unwrap_or_else(|e| e.exit()),
             images: m
                 .values_of("image")
                 .into_iter()
@@ -65,8 +62,8 @@ fn main() -> io::Result<()> {
 
     for image in opt.images {
         match opt.operation {
-            Operation::Enlarge => enlarge(&image, opt.threshold)?.write()?,
-            Operation::Shrink => shrink(&image, opt.threshold)?.write()?,
+            Operation::Enlarge => enlarge(&image, opt.size)?.write()?,
+            Operation::Shrink => shrink(&image, opt.size)?.write()?,
         }
     }
 
@@ -86,7 +83,8 @@ where
     Container: Deref<Target = [P::Subpixel]>,
 {
     fn write(&self, path: &str) -> io::Result<()> {
-        self.save(path).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        self.save(path)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 }
 
@@ -107,29 +105,60 @@ impl Resize<'_> {
     }
 }
 
-fn enlarge(_image: &str, _threshold: u32) -> io::Result<Resize> {
+fn enlarge(_image: &str, _size: u32) -> io::Result<Resize> {
     panic!("No idea who in their right mind would implement this, or how!")
 }
 
-fn shrink(image: &str, threshold: u32) -> io::Result<Resize> {
-    let buffer = ImageLoader::open(image)?.decode().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+fn shrink(image: &str, size: u32) -> io::Result<Resize> {
+    let buffer = ImageLoader::open(image)?
+        .decode()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let (width, height) = buffer.dimensions();
 
-    if width > threshold {
-        let width = threshold;
-        let height = (threshold as f64 / width as f64).floor() as u32;
-        Ok(Resize::Resize {
-            path: image,
-            buffer: Box::new(resize(&buffer, width, height, FilterType::Lanczos3)),
-        })
-    } else if height > threshold {
-        let height = threshold;
-        let width = (threshold as f64 / height as f64).floor() as u32;
+    if let Some((width, height)) = shrink_dimensions(width, height, size) {
         Ok(Resize::Resize {
             path: image,
             buffer: Box::new(resize(&buffer, width, height, FilterType::Lanczos3)),
         })
     } else {
         Ok(Resize::Noop)
+    }
+}
+
+fn shrink_dimensions(width: u32, height: u32, size: u32) -> Option<(u32, u32)> {
+    if width > height && width > size {
+        let nwidth = size;
+        let nheight = (size as f64 / width as f64 * height as f64).floor() as u32;
+        Some((nwidth, nheight))
+    } else if height > size {
+        let nheight = size;
+        let nwidth = (size as f64 / height as f64 * width as f64).floor() as u32;
+        Some((nwidth, nheight))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shrink_dimensions;
+
+    #[test]
+    fn fix_5000_3000() {
+        let actual = shrink_dimensions(5000, 3000, 2000);
+        let expected = Some((2000, 1200));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn fix_3000_5000() {
+        let actual = shrink_dimensions(3000, 5000, 2000);
+        let expected = Some((1200, 2000));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn fix_1200_1800() {
+        assert!(shrink_dimensions(1200, 1800, 2000).is_none());
     }
 }
