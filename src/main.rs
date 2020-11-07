@@ -105,8 +105,20 @@ impl Resize<'_> {
     }
 }
 
-fn enlarge(_image: &str, _size: u32) -> io::Result<Resize> {
-    panic!("No idea who in their right mind would implement this, or how!")
+fn enlarge(image: &str, size: u32) -> io::Result<Resize> {
+    let buffer = ImageLoader::open(image)?
+        .decode()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let (width, height) = buffer.dimensions();
+
+    if let Some((width, height)) = enlarge_dimensions(width, height, size) {
+        Ok(Resize::Resize {
+            path: image,
+            buffer: Box::new(resize(&buffer, width, height, FilterType::Lanczos3)),
+        })
+    } else {
+        Ok(Resize::Noop)
+    }
 }
 
 fn shrink(image: &str, size: u32) -> io::Result<Resize> {
@@ -122,6 +134,20 @@ fn shrink(image: &str, size: u32) -> io::Result<Resize> {
         })
     } else {
         Ok(Resize::Noop)
+    }
+}
+
+fn enlarge_dimensions(width: u32, height: u32, size: u32) -> Option<(u32, u32)> {
+    if width > height && width < size {
+        let nwidth = size;
+        let nheight = (size as f64 / width as f64 * height as f64).floor() as u32;
+        Some((nwidth, nheight))
+    } else if height < size {
+        let nheight = size;
+        let nwidth = (size as f64 / height as f64 * width as f64).floor() as u32;
+        Some((nwidth, nheight))
+    } else {
+        None
     }
 }
 
@@ -141,24 +167,43 @@ fn shrink_dimensions(width: u32, height: u32, size: u32) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::shrink_dimensions;
+    use super::{enlarge_dimensions, shrink_dimensions};
 
     #[test]
-    fn fix_5000_3000() {
+    fn shrink_5000_3000() {
         let actual = shrink_dimensions(5000, 3000, 2000);
         let expected = Some((2000, 1200));
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn fix_3000_5000() {
+    fn shrink_3000_5000() {
         let actual = shrink_dimensions(3000, 5000, 2000);
         let expected = Some((1200, 2000));
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn fix_1200_1800() {
+    fn shrink_1200_1800() {
         assert!(shrink_dimensions(1200, 1800, 2000).is_none());
+    }
+
+    #[test]
+    fn enlarge_500_300() {
+        let actual = enlarge_dimensions(500, 300, 1000);
+        let expected = Some((1000, 600));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn enlarge_300_500() {
+        let actual = enlarge_dimensions(300, 500, 1000);
+        let expected = Some((600, 1000));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn enlarge_800_1200() {
+        assert!(enlarge_dimensions(800, 1200, 1000).is_none());
     }
 }
