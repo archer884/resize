@@ -1,10 +1,10 @@
+use std::{io, ops::Deref};
+
 use image::{
     imageops::{resize, FilterType},
     io::Reader as ImageLoader,
     EncodableLayout, GenericImageView, ImageBuffer, Pixel,
 };
-
-use std::{io, ops::Deref};
 
 #[derive(Copy, Clone, Debug)]
 enum Operation {
